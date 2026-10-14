@@ -30,23 +30,31 @@ impl From<u64> for Pixel {
 
 #[derive(Debug)]
 pub struct Sprite<'a> {
-    pub fields: HashMap<&'a str, &'a str>,
+    pub fields: HashMap<Box<str>, &'a str>,
     pub buffer: Box<[Box<[Pixel]>]>,
 }
 
 impl<'a> Sprite<'a> {
     pub fn parse(data: &'a str) -> anyhow::Result<Self> {
-        // Very basic format inspired in HTTP.
-        let (raw_fields, raw_buffer) = data.split_once("\n\n").unwrap_or(("", data));
+        // ~ very basic format inspired by http.
+        let (raw_fields, raw_buffer) = data.split_once("\n\n").unwrap_or((data, ""));
         let fields = HashMap::from_iter(
             raw_fields.lines()
                 // ~ shouldn't be neccessary but just in case:
                 .filter(|line| !line.is_empty())
                 .map(|line| {
                     let (k, v) = line.split_once(':').unwrap_or((line, ""));
-                    (k.trim(), v.trim())
+                    (k.trim().to_ascii_lowercase().into_boxed_str(), v.trim())
                 })
         );
+        let custom_colors: Option<HashMap<u8, &str>> = fields.get("colors")
+            .map(|value| {
+                HashMap::from_iter(
+                    value.split_whitespace().filter_map(|def| {
+                        def.split_once('=').map(|(k, v)| (k.as_bytes()[0], v))
+                    })
+                )
+            });
         let mut buffer = vec![];
         for raw_buffer_line in raw_buffer.lines() {
             let mut buffer_line = vec![];
@@ -55,8 +63,10 @@ impl<'a> Sprite<'a> {
                     b'B' => Pixel::from(0x111111ff), // black
                     b'D' => Pixel::from(0x404040ff), // dark gray
                     b'G' => Pixel::from(0x808080ff), // gray
-                    b'L' => Pixel::from(0xbbbbbbff), // light gray
+                    b'L' => Pixel::from(0xccccccff), // light gray
                     b'W' => Pixel::from(0xf0f0f0ff), // white
+                    b'M' => Pixel::from(0x804050ff), // maroon
+                    b'S' => Pixel::from(0xf0c0acff), // skin color
                     b'r' => Pixel::from(0xff5050ff), // red
                     b'o' => Pixel::from(0xffaa50ff), // orange
                     b'y' => Pixel::from(0xffff50ff), // yellow
@@ -69,7 +79,13 @@ impl<'a> Sprite<'a> {
                     b'v' => Pixel::from(0xaa50ffff), // violet
                     b'm' => Pixel::from(0xff50ffff), // magenta
                     b'p' => Pixel::from(0xff50aaff), // pink
-                    _ => Pixel::default(),
+                    _ => {
+                        if let Some(colors) = &custom_colors && let Some(hex) = colors.get(&b) {
+                            Pixel::from(u64::from_str_radix(hex, 16)?)
+                        } else {
+                            Pixel::default()
+                        }
+                    }
                 };
                 buffer_line.push(px);
             }
@@ -80,13 +96,15 @@ impl<'a> Sprite<'a> {
     }
 }
 
+// note: this is for debugging purposes only.
+//       please use screen.render()
 impl fmt::Display for Sprite<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // let mut row = 0;
-        let mut buf = self.buffer.iter();
-        while let Some(buf_line_hi) = buf.next() {
+        let mut buf_lines = self.buffer.iter();
+        while let Some(buf_line_hi) = buf_lines.next() {
             let mut line = String::with_capacity(buf_line_hi.len() * 6);
-            if let Some(buf_line_lo) = buf.next() {
+            if let Some(buf_line_lo) = buf_lines.next() {
                 for pixels in
                     Itertools::zip_longest(
                         buf_line_hi.iter().copied(),

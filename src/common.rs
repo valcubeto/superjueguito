@@ -4,7 +4,7 @@
 
 pub use crate::{
     render::{
-        screen::{ Screen, Vec2d, Position },
+        screen::{ Screen, Vec2d, Position, AlignX, AlignY },
         sprite::{ Pixel, Sprite },
     },
     strings::*,
